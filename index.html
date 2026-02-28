@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XML Check Support</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f5f5;
+      --surface: #ffffff;
+      --border: #e0e0e0;
+      --primary: #2563eb;
+      --primary-light: #eff6ff;
+      --text: #1a1a1a;
+      --text-muted: #6b7280;
+      --tag-bg: #e5e7eb;
+      --hover: #f3f4f6;
+      --highlight: #fef08a;
+      --radius: 6px;
+      --browser-width: 290px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 16px; font-weight: 700; color: var(--primary); white-space: nowrap; }
+    .header-controls { display: flex; align-items: center; gap: 8px; flex: 1; }
+
+    /* ── Upload ── */
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 6px 14px;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 13px;
+      white-space: nowrap;
+      transition: border-color .2s, background .2s;
+      background: var(--surface);
+    }
+    #drop-zone:hover, #drop-zone.drag-over {
+      border-color: var(--primary);
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+    #file-input { display: none; }
+
+    /* ── Search ── */
+    .search-wrap { flex: 1; position: relative; }
+    #search-input {
+      width: 100%;
+      padding: 6px 12px 6px 34px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 14px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    #search-input:focus { border-color: var(--primary); }
+    .search-icon {
+      position: absolute; left: 10px; top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted); pointer-events: none;
+    }
+    #search-clear {
+      position: absolute; right: 8px; top: 50%;
+      transform: translateY(-50%);
+      background: none; border: none; cursor: pointer;
+      color: var(--text-muted); display: none; font-size: 16px; padding: 2px;
+    }
+    #search-clear:hover { color: var(--text); }
+
+    /* ── Filters ── */
+    .filter-bar { display: flex; align-items: center; gap: 6px; }
+    .filter-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+    select {
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px;
+      background: var(--surface);
+      cursor: pointer; outline: none;
+    }
+    select:focus { border-color: var(--primary); }
+
+    /* ── Stats bar ── */
+    #stats-bar {
+      padding: 4px 16px; font-size: 12px; color: var(--text-muted);
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0; display: none;
+    }
+    #stats-bar span { font-weight: 600; color: var(--text); }
+
+    /* ── Main layout ── */
+    main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Col 1: Record list ── */
+    #record-list {
+      width: 320px; flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      overflow-y: auto; background: var(--surface);
+    }
+    .record-item {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer; transition: background .15s;
+    }
+    .record-item:hover { background: var(--hover); }
+    .record-item.active { background: var(--primary-light); border-left: 3px solid var(--primary); }
+    .record-item.browse-match { background: #fefce8; }
+    .record-item.active.browse-match { background: var(--primary-light); }
+    .rec-title { font-weight: 600; font-size: 13px; margin-bottom: 3px; line-height: 1.4; }
+    .rec-meta { font-size: 11px; color: var(--text-muted); display: flex; gap: 8px; flex-wrap: wrap; }
+    .rec-meta .tag { background: var(--tag-bg); border-radius: 3px; padding: 1px 5px; }
+    .rec-index { font-size: 10px; color: var(--text-muted); float: right; }
+    mark { background: var(--highlight); border-radius: 2px; padding: 0 1px; }
+
+    /* ── Col 2: Detail panel ── */
+    #detail-panel { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 24px; }
+
+    .placeholder {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100%; color: var(--text-muted); gap: 12px; text-align: center;
+    }
+    .placeholder svg { opacity: 0.3; }
+    .placeholder p { font-size: 15px; }
+    .placeholder small { font-size: 13px; }
+
+    .detail-header { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 2px solid var(--border); }
+    .detail-title { font-size: 20px; font-weight: 700; line-height: 1.4; margin-bottom: 6px; }
+    .detail-id { font-size: 11px; color: var(--text-muted); font-family: monospace; }
+
+    .detail-section { margin-bottom: 20px; }
+    .detail-section h3 {
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .05em;
+      color: var(--text-muted); margin-bottom: 8px;
+    }
+    .detail-grid { display: grid; grid-template-columns: 150px 1fr; gap: 2px 12px; }
+
+    /* ── Browsable field key ── */
+    .detail-key {
+      font-size: 13px; color: var(--text-muted);
+      padding: 4px 6px 4px 0; align-self: start;
+    }
+    .detail-key.browsable {
+      cursor: pointer;
+      display: flex; align-items: center; gap: 4px;
+      border-radius: 4px;
+      padding: 4px 6px;
+      margin-left: -6px;
+      transition: background .15s, color .15s;
+      user-select: none;
+    }
+    .detail-key.browsable:hover { background: var(--hover); color: var(--primary); }
+    .detail-key.browsable.active-browse { background: var(--primary-light); color: var(--primary); font-weight: 600; }
+    .browse-icon {
+      font-size: 11px; opacity: 0;
+      transition: opacity .15s;
+      flex-shrink: 0;
+    }
+    .detail-key.browsable:hover .browse-icon,
+    .detail-key.browsable.active-browse .browse-icon { opacity: 1; }
+
+    .detail-val { font-size: 13px; padding: 4px 0; line-height: 1.5; }
+    .detail-val.multi { display: flex; flex-direction: column; gap: 2px; }
+    .detail-val a { color: var(--primary); text-decoration: none; word-break: break-all; }
+    .detail-val a:hover { text-decoration: underline; }
+    .material-tag {
+      display: inline-block;
+      background: var(--primary-light); color: var(--primary);
+      border-radius: 4px; padding: 2px 8px;
+      font-size: 12px; margin-right: 4px; margin-bottom: 2px;
+    }
+
+    /* ── Col 3: Field browser ── */
+    #field-browser {
+      width: 0; flex-shrink: 0;
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      overflow: hidden;
+      transition: width .2s ease;
+      display: flex; flex-direction: column;
+    }
+    #field-browser.open { width: var(--browser-width); }
+
+    .fb-header {
+      padding: 12px 14px 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px;
+      flex-shrink: 0;
+    }
+    .fb-title {
+      flex: 1;
+      font-size: 13px; font-weight: 700;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .fb-title small { font-weight: 400; color: var(--text-muted); margin-left: 4px; font-size: 11px; }
+    .fb-close {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-muted); font-size: 18px; line-height: 1;
+      padding: 2px 4px; border-radius: 4px;
+      transition: background .15s, color .15s;
+    }
+    .fb-close:hover { background: var(--hover); color: var(--text); }
+
+    .fb-filter-row {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .fb-search {
+      width: 100%;
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px; outline: none;
+    }
+    .fb-search:focus { border-color: var(--primary); }
+
+    .fb-list { flex: 1; overflow-y: auto; }
+
+    .fb-item {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      display: flex; align-items: baseline; gap: 8px;
+      transition: background .12s;
+    }
+    .fb-item:hover { background: var(--hover); }
+    .fb-item.fb-active { background: var(--primary-light); }
+    .fb-val {
+      flex: 1; font-size: 13px; line-height: 1.4;
+      word-break: break-word;
+      min-width: 0;
+    }
+    .fb-count {
+      font-size: 11px; color: var(--text-muted);
+      background: var(--tag-bg); border-radius: 10px;
+      padding: 1px 7px; flex-shrink: 0; white-space: nowrap;
+    }
+    .fb-item.fb-active .fb-count { background: #bfdbfe; color: var(--primary); }
+    .fb-empty { padding: 24px 14px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+    .fb-active-banner {
+      padding: 6px 14px;
+      background: #fef9c3;
+      border-bottom: 1px solid #fde68a;
+      font-size: 12px; color: #92400e;
+      display: none; flex-shrink: 0;
+      align-items: center; gap: 6px;
+    }
+    .fb-active-banner.show { display: flex; }
+    .fb-clear-btn {
+      margin-left: auto;
+      background: none; border: none; cursor: pointer;
+      color: #92400e; font-size: 12px; text-decoration: underline;
+    }
+
+    /* ── Upload placeholder (in list col) ── */
+    #upload-placeholder {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100%; gap: 16px; color: var(--text-muted);
+      padding: 24px;
+    }
+    #upload-placeholder svg { opacity: 0.25; }
+    #upload-placeholder h2 { font-size: 16px; color: var(--text); text-align: center; }
+    #upload-placeholder p { font-size: 13px; text-align: center; line-height: 1.6; }
+    .upload-btn {
+      padding: 8px 20px; background: var(--primary); color: #fff;
+      border: none; border-radius: var(--radius);
+      font-size: 13px; cursor: pointer; font-weight: 600;
+      transition: opacity .2s;
+    }
+    .upload-btn:hover { opacity: 0.85; }
+
+    #no-results { padding: 40px 20px; text-align: center; color: var(--text-muted); display: none; }
+
+    #loading { display: none; padding: 20px; text-align: center; color: var(--text-muted); }
+    .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 2px solid var(--border); border-top-color: var(--primary);
+      border-radius: 50%; animation: spin .7s linear infinite;
+      vertical-align: middle; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Raw XML ── */
+    .raw-toggle { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .raw-toggle summary { cursor: pointer; font-size: 12px; color: var(--text-muted); user-select: none; }
+    .raw-toggle summary:hover { color: var(--primary); }
+    .raw-xml {
+      margin-top: 10px; background: #1e1e1e; color: #d4d4d4;
+      padding: 14px; border-radius: var(--radius);
+      font-size: 11px; font-family: 'Cascadia Code', 'Fira Code', monospace;
+      overflow-x: auto; white-space: pre; max-height: 400px; overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>XML Checker</h1>
+  <div class="header-controls">
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+      📂 XMLを開く / ドロップ
+    </div>
+    <input type="file" id="file-input" accept=".xml">
+
+    <div class="search-wrap">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="search-input" placeholder="検索（タイトル・作成者・ID・説明など）" disabled>
+      <button id="search-clear" title="クリア">×</button>
+    </div>
+
+    <div class="filter-bar">
+      <span class="filter-label">種別:</span>
+      <select id="filter-type" disabled><option value="">すべて</option></select>
+      <span class="filter-label">Set:</span>
+      <select id="filter-set" disabled><option value="">すべて</option></select>
+    </div>
+  </div>
+</header>
+
+<div id="stats-bar"></div>
+
+<main>
+  <!-- Col 1 -->
+  <div id="record-list">
+    <div id="upload-placeholder">
+      <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="18" x2="12" y2="12"/>
+        <line x1="9" y1="15" x2="15" y2="15"/>
+      </svg>
+      <h2>XMLファイルを開く</h2>
+      <p>上の「XMLを開く」ボタンをクリックするか、ここにXMLファイルをドラッグ&amp;ドロップしてください。</p>
+      <button class="upload-btn" onclick="document.getElementById('file-input').click()">ファイルを選択</button>
+    </div>
+    <div id="loading"><span class="spinner"></span>読み込み中…</div>
+    <div id="no-results">検索結果がありません</div>
+  </div>
+
+  <!-- Col 2 -->
+  <div id="detail-panel">
+    <div class="placeholder">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="3" y1="9" x2="21" y2="9"/>
+        <line x1="9" y1="21" x2="9" y2="9"/>
+      </svg>
+      <p>レコードを選択して詳細を表示</p>
+      <small>左のリストからレコードをクリックしてください</small>
+    </div>
+  </div>
+
+  <!-- Col 3: Field browser -->
+  <div id="field-browser">
+    <div class="fb-header">
+      <div class="fb-title" id="fb-title">フィールドブラウザ</div>
+      <button class="fb-close" id="fb-close" title="閉じる">×</button>
+    </div>
+    <div class="fb-active-banner" id="fb-banner">
+      <span id="fb-banner-text"></span>
+      <button class="fb-clear-btn" id="fb-clear-filter">フィルター解除</button>
+    </div>
+    <div class="fb-filter-row">
+      <input type="text" class="fb-search" id="fb-search" placeholder="値で絞り込み…">
+    </div>
+    <div class="fb-list" id="fb-list"></div>
+  </div>
+</main>
+
+<script>
+  // ── State ──
+  let allRecords = [];
+  let filteredRecords = [];
+  let currentIndex = -1;
+  let searchQuery = '';
+  let activeBrowseField = null;   // currently open field key
+  let activeBrowseValue = null;   // currently pinned value (null = show all)
+  let browseMatchSet = new Set(); // record indices matching current browse filter
+
+  // ── Field definitions (label → record property) ──
+  const FIELD_DEFS = {
+    'タイトル':     { prop: 'title',         multi: false },
+    '作成者':       { prop: 'creators',       multi: true  },
+    '日付':         { prop: 'date',           multi: false },
+    '言語':         { prop: 'language',       multi: false },
+    '数量・大きさ': { prop: 'extent',         multi: true  },
+    '場所':         { prop: 'spatial',        multi: false },
+    '時間的範囲':   { prop: 'temporal',       multi: false },
+    '対象読者':     { prop: 'audience',       multi: false },
+    '資料種別':     { prop: 'materialLabels', multi: true  },
+    '件名':         { prop: 'subjects',       multi: true  },
+    'description':  { prop: 'descriptions',   multi: true  },
+    '識別子':       { prop: 'identifier',     multi: false },
+    '更新日時':     { prop: 'datestamp',      multi: false },
+    'Set':          { prop: 'setSpecs',       multi: true  },
+    '書誌カテゴリ': { prop: 'bibCategory',    multi: false },
+  };
+
+  // ── Elements ──
+  const fileInput       = document.getElementById('file-input');
+  const dropZone        = document.getElementById('drop-zone');
+  const searchInput     = document.getElementById('search-input');
+  const searchClear     = document.getElementById('search-clear');
+  const filterType      = document.getElementById('filter-type');
+  const filterSet       = document.getElementById('filter-set');
+  const recordList      = document.getElementById('record-list');
+  const detailPanel     = document.getElementById('detail-panel');
+  const statsBar        = document.getElementById('stats-bar');
+  const loading         = document.getElementById('loading');
+  const noResults       = document.getElementById('no-results');
+  const uploadPlaceholder = document.getElementById('upload-placeholder');
+  const fieldBrowser    = document.getElementById('field-browser');
+  const fbTitle         = document.getElementById('fb-title');
+  const fbList          = document.getElementById('fb-list');
+  const fbClose         = document.getElementById('fb-close');
+  const fbSearch        = document.getElementById('fb-search');
+  const fbBanner        = document.getElementById('fb-banner');
+  const fbBannerText    = document.getElementById('fb-banner-text');
+  const fbClearFilter   = document.getElementById('fb-clear-filter');
+
+  // ── File handling ──
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.endsWith('.xml')) loadFile(f);
+  });
+  recordList.addEventListener('dragover', e => e.preventDefault());
+  recordList.addEventListener('drop', e => {
+    e.preventDefault();
+    const f = e.dataTransfer.files[0];
+    if (f && f.name.endsWith('.xml')) loadFile(f);
+  });
+
+  function loadFile(file) {
+    uploadPlaceholder.style.display = 'none';
+    loading.style.display = 'block';
+    dropZone.textContent = '📂 ' + file.name;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const xml = new DOMParser().parseFromString(e.target.result, 'application/xml');
+        if (xml.querySelector('parsererror')) throw new Error('XMLの解析に失敗しました');
+        parseRecords(xml);
+      } catch (err) {
+        loading.style.display = 'none';
+        uploadPlaceholder.style.display = 'flex';
+        alert('エラー: ' + err.message);
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+
+  // ── XML parsing ──
+  function parseRecords(xml) {
+    const ns = {
+      dcterms: 'http://purl.org/dc/terms/',
+      dc:      'http://purl.org/dc/elements/1.1/',
+      dcndl:   'http://ndl.go.jp/dcndl/terms/',
+      rdf:     'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+      rdfs:    'http://www.w3.org/2000/01/rdf-schema#',
+      foaf:    'http://xmlns.com/foaf/0.1/',
+    };
+    function xpathText(node, expr) {
+      try {
+        return xml.evaluate(expr, node, p => ns[p] || null, XPathResult.STRING_TYPE, null).stringValue.trim();
+      } catch { return ''; }
+    }
+    function xpathTexts(node, expr) {
+      try {
+        const r = xml.evaluate(expr, node, p => ns[p] || null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+        const arr = [];
+        for (let i = 0; i < r.snapshotLength; i++) {
+          const t = r.snapshotItem(i).textContent.trim();
+          if (t) arr.push(t);
+        }
+        return arr;
+      } catch { return []; }
+    }
+    function xpathAttrs(node, expr, attr) {
+      try {
+        const r = xml.evaluate(expr, node, p => ns[p] || null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+        const arr = [];
+        for (let i = 0; i < r.snapshotLength; i++) {
+          const v = r.snapshotItem(i).getAttribute(attr);
+          if (v) arr.push(v);
+        }
+        return arr;
+      } catch { return []; }
+    }
+
+    const recordEls = xml.querySelectorAll('record');
+    allRecords = [...recordEls].map((rec, idx) => {
+      const header     = rec.querySelector('header');
+      const identifier = header?.querySelector('identifier')?.textContent.trim() || '';
+      const datestamp  = header?.querySelector('datestamp')?.textContent.trim() || '';
+      const setSpecs   = [...(header?.querySelectorAll('setSpec') || [])].map(e => e.textContent.trim());
+
+      const title = xpathTexts(rec, './/dcterms:title')[0]
+                 || xpathText(rec, './/dc:title') || '（タイトルなし）';
+
+      const creators = [...new Set([
+        ...xpathTexts(rec, './/foaf:name'),
+        ...xpathTexts(rec, './/dc:creator'),
+      ])];
+
+      const date         = xpathText(rec, './/dcterms:date') || xpathText(rec, './/dcterms:issued');
+      const issued       = xpathText(rec, './/dcterms:issued');
+      const descriptions = xpathTexts(rec, './/dcterms:description');
+      const subjects     = xpathTexts(rec, './/dcterms:subject//rdf:value');
+      const language     = xpathText(rec, './/dcterms:language');
+      const extent       = xpathTexts(rec, './/dcterms:extent');
+      const spatial      = xpathText(rec, './/dcterms:spatial');
+      const temporal     = xpathText(rec, './/dcterms:temporal');
+      const audience     = xpathText(rec, './/dcterms:audience');
+      const bibCategory  = xpathText(rec, './/dcndl:bibRecordCategory');
+
+      const materialLabels = xpathAttrs(rec, './/dcndl:materialType', 'rdfs:label').filter(Boolean)
+        || [...rec.querySelectorAll('materialType')].map(e => e.getAttribute('rdfs:label')).filter(Boolean);
+
+      const seeAlsoLinks = [...new Set(xpathAttrs(rec, './/rdfs:seeAlso', 'rdf:resource'))];
+      const rawXml       = new XMLSerializer().serializeToString(rec);
+
+      const fullText = [identifier, title, ...creators, date, issued,
+        ...descriptions, ...subjects, ...materialLabels, spatial, temporal,
+        ...setSpecs, bibCategory, ...extent].join(' ').toLowerCase();
+
+      return { idx, identifier, datestamp, setSpecs, title, creators, date, issued,
+               descriptions, subjects, language, extent, spatial, temporal, audience,
+               materialLabels, seeAlsoLinks, bibCategory, rawXml, fullText };
+    });
+
+    populateFilters();
+    loading.style.display = 'none';
+    searchInput.disabled = false;
+    filterType.disabled = false;
+    filterSet.disabled = false;
+    applyFilters();
+  }
+
+  function getFieldValues(record, fieldLabel) {
+    const def = FIELD_DEFS[fieldLabel];
+    if (!def) return [];
+    const val = record[def.prop];
+    if (!val) return [];
+    if (Array.isArray(val)) return val.filter(Boolean);
+    return val ? [val] : [];
+  }
+
+  // ── Filters ──
+  function populateFilters() {
+    const types = new Set(); allRecords.forEach(r => r.materialLabels.forEach(t => types.add(t)));
+    filterType.innerHTML = '<option value="">すべての資料種別</option>';
+    [...types].sort().forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; filterType.appendChild(o); });
+
+    const sets = new Set(); allRecords.forEach(r => r.setSpecs.forEach(s => sets.add(s)));
+    filterSet.innerHTML = '<option value="">すべてのSet</option>';
+    [...sets].sort().forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; filterSet.appendChild(o); });
+  }
+
+  searchInput.addEventListener('input', () => {
+    searchQuery = searchInput.value;
+    searchClear.style.display = searchQuery ? 'block' : 'none';
+    applyFilters();
+  });
+  searchClear.addEventListener('click', () => {
+    searchInput.value = ''; searchQuery = '';
+    searchClear.style.display = 'none';
+    applyFilters(); searchInput.focus();
+  });
+  filterType.addEventListener('change', applyFilters);
+  filterSet.addEventListener('change', applyFilters);
+
+  function applyFilters() {
+    const q          = searchQuery.toLowerCase();
+    const typeFilter = filterType.value;
+    const setFilter  = filterSet.value;
+
+    filteredRecords = allRecords.filter(r => {
+      if (q && !r.fullText.includes(q)) return false;
+      if (typeFilter && !r.materialLabels.includes(typeFilter)) return false;
+      if (setFilter && !r.setSpecs.includes(setFilter)) return false;
+      return true;
+    });
+
+    renderList();
+    updateStats();
+
+    if (currentIndex >= 0 && !filteredRecords.find(r => r.idx === currentIndex)) {
+      currentIndex = -1;
+      detailPanel.innerHTML = `<div class="placeholder">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="3" y1="9" x2="21" y2="9"/>
+          <line x1="9" y1="21" x2="9" y2="9"/>
+        </svg>
+        <p>レコードを選択して詳細を表示</p></div>`;
+    }
+
+    // Refresh field browser if open
+    if (activeBrowseField) renderFieldBrowser(activeBrowseField, false);
+  }
+
+  function updateStats() {
+    if (!allRecords.length) { statsBar.style.display = 'none'; return; }
+    statsBar.style.display = 'block';
+    const total = allRecords.length, shown = filteredRecords.length;
+    const browseInfo = activeBrowseValue
+      ? ` &nbsp;|&nbsp; ブラウズ: <span>"${escHtml(activeBrowseValue)}"</span> (${browseMatchSet.size}件一致)`
+      : '';
+    if (shown === total) {
+      statsBar.innerHTML = `総レコード数: <span>${total}</span>件${browseInfo}`;
+    } else {
+      statsBar.innerHTML = `<span>${shown}</span> / ${total} 件を表示${browseInfo}`;
+    }
+  }
+
+  // ── Highlight ──
+  function highlight(text, query) {
+    if (!query) return escHtml(text);
+    const esc = escHtml(text);
+    const q   = escHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return esc.replace(new RegExp(q, 'gi'), m => `<mark>${m}</mark>`);
+  }
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Render record list ──
+  function renderList() {
+    recordList.querySelectorAll('.record-item').forEach(el => el.remove());
+    noResults.style.display = (!filteredRecords.length && allRecords.length) ? 'block' : 'none';
+
+    const q = searchQuery;
+    filteredRecords.forEach((rec, listIdx) => {
+      const div = document.createElement('div');
+      const isMatch = browseMatchSet.size > 0 && browseMatchSet.has(rec.idx);
+      div.className = 'record-item'
+        + (rec.idx === currentIndex ? ' active' : '')
+        + (isMatch ? ' browse-match' : '');
+      div.dataset.idx = rec.idx;
+
+      const creatorStr = rec.creators.length ? rec.creators.join('、') : '';
+      const typeStr    = rec.materialLabels[0] || '';
+      const dateStr    = rec.date || rec.issued || '';
+
+      div.innerHTML = `
+        <div class="rec-title">
+          ${highlight(rec.title, q)}
+          <span class="rec-index">${listIdx + 1}</span>
+        </div>
+        <div class="rec-meta">
+          ${creatorStr ? `<span>${highlight(creatorStr, q)}</span>` : ''}
+          ${dateStr    ? `<span>${highlight(dateStr, q)}</span>` : ''}
+          ${typeStr    ? `<span class="tag">${highlight(typeStr, q)}</span>` : ''}
+          ${isMatch    ? `<span class="tag" style="background:#fde68a;color:#92400e">●</span>` : ''}
+        </div>`;
+      div.addEventListener('click', () => selectRecord(rec.idx));
+      recordList.appendChild(div);
+    });
+  }
+
+  // ── Select record ──
+  function selectRecord(idx, scroll = false) {
+    currentIndex = idx;
+    recordList.querySelectorAll('.record-item').forEach(el => {
+      el.classList.toggle('active', Number(el.dataset.idx) === idx);
+    });
+    if (scroll) {
+      const el = recordList.querySelector('.record-item.active');
+      if (el) el.scrollIntoView({ block: 'nearest' });
+    }
+    renderDetail(allRecords[idx]);
+  }
+
+  // ── Render detail ──
+  function renderDetail(rec) {
+    const q = searchQuery;
+    function hl(s) { return highlight(s, q); }
+
+    function fieldRow(label, val, isHtml = false) {
+      if (!val) return '';
+      const def = FIELD_DEFS[label];
+      const keyClass = def ? 'detail-key browsable' : 'detail-key';
+      const onClick   = def ? `onclick="openFieldBrowser('${escHtml(label)}')"` : '';
+      const isActive  = activeBrowseField === label ? ' active-browse' : '';
+      return `
+        <div class="${keyClass}${isActive}" ${onClick}>
+          ${escHtml(label)}
+          ${def ? '<span class="browse-icon">≡</span>' : ''}
+        </div>
+        <div class="detail-val">${isHtml ? val : hl(val)}</div>`;
+    }
+
+    function fieldMultiRow(label, vals) {
+      if (!vals || !vals.length) return '';
+      const def = FIELD_DEFS[label];
+      const keyClass = def ? 'detail-key browsable' : 'detail-key';
+      const onClick   = def ? `onclick="openFieldBrowser('${escHtml(label)}')"` : '';
+      const isActive  = activeBrowseField === label ? ' active-browse' : '';
+      return `
+        <div class="${keyClass}${isActive}" ${onClick}>
+          ${escHtml(label)}
+          ${def ? '<span class="browse-icon">≡</span>' : ''}
+        </div>
+        <div class="detail-val multi">${vals.map(v => `<span>${hl(v)}</span>`).join('')}</div>`;
+    }
+
+    const materialTagsHtml = rec.materialLabels.map(t => `<span class="material-tag">${escHtml(t)}</span>`).join('');
+    const linksHtml = rec.seeAlsoLinks.map(u => `<a href="${escHtml(u)}" target="_blank" rel="noopener">${escHtml(u)}</a>`).join('<br>');
+
+    detailPanel.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-title">${hl(rec.title)}</div>
+        <div class="detail-id">${escHtml(rec.identifier)}</div>
+      </div>
+
+      <div class="detail-section">
+        <h3>書誌情報</h3>
+        <div class="detail-grid">
+          ${fieldRow('タイトル', rec.title)}
+          ${fieldMultiRow('作成者', rec.creators)}
+          ${fieldRow('日付', rec.date)}
+          ${fieldRow('言語', rec.language)}
+          ${fieldMultiRow('数量・大きさ', rec.extent)}
+          ${fieldRow('場所', rec.spatial)}
+          ${fieldRow('時間的範囲', rec.temporal)}
+          ${fieldRow('対象読者', rec.audience)}
+          ${rec.materialLabels.length ? `
+            <div class="detail-key browsable${activeBrowseField === '資料種別' ? ' active-browse' : ''}"
+                 onclick="openFieldBrowser('資料種別')">
+              資料種別 <span class="browse-icon">≡</span>
+            </div>
+            <div class="detail-val">${materialTagsHtml}</div>` : ''}
+        </div>
+      </div>
+
+      ${rec.subjects.length ? `
+      <div class="detail-section">
+        <h3>主題</h3>
+        <div class="detail-grid">${fieldMultiRow('件名', rec.subjects)}</div>
+      </div>` : ''}
+
+      ${rec.descriptions.length ? `
+      <div class="detail-section">
+        <h3>説明</h3>
+        <div class="detail-grid">${fieldMultiRow('description', rec.descriptions)}</div>
+      </div>` : ''}
+
+      <div class="detail-section">
+        <h3>管理情報</h3>
+        <div class="detail-grid">
+          ${fieldRow('識別子', rec.identifier)}
+          ${fieldRow('更新日時', rec.datestamp)}
+          ${rec.setSpecs.length ? `
+            <div class="detail-key browsable${activeBrowseField === 'Set' ? ' active-browse' : ''}"
+                 onclick="openFieldBrowser('Set')">
+              Set <span class="browse-icon">≡</span>
+            </div>
+            <div class="detail-val">${rec.setSpecs.map(s => `<span class="material-tag">${escHtml(s)}</span>`).join('')}</div>` : ''}
+          ${fieldRow('書誌カテゴリ', rec.bibCategory)}
+        </div>
+      </div>
+
+      ${linksHtml ? `
+      <div class="detail-section">
+        <h3>外部リンク</h3>
+        <div class="detail-grid">
+          <div class="detail-key">参照先</div>
+          <div class="detail-val">${linksHtml}</div>
+        </div>
+      </div>` : ''}
+
+      <details class="raw-toggle">
+        <summary>▶ 生のXMLを表示</summary>
+        <div class="raw-xml">${escHtml(formatXml(rec.rawXml))}</div>
+      </details>`;
+  }
+
+  // ── Field browser ──
+  function openFieldBrowser(fieldLabel) {
+    // Toggle off if same field clicked
+    if (activeBrowseField === fieldLabel) {
+      closeFieldBrowser();
+      return;
+    }
+    activeBrowseField = fieldLabel;
+    activeBrowseValue = null;
+    browseMatchSet.clear();
+    fbSearch.value = '';
+    fieldBrowser.classList.add('open');
+    renderFieldBrowser(fieldLabel, true);
+    renderList();        // refresh match marks
+    updateStats();
+    if (currentIndex >= 0) renderDetail(allRecords[currentIndex]); // refresh active styles
+  }
+
+  function renderFieldBrowser(fieldLabel, resetScroll = false) {
+    const filterQ = fbSearch.value.toLowerCase();
+
+    // Collect value → [record indices]
+    const valueMap = new Map();
+    allRecords.forEach(rec => {
+      const vals = getFieldValues(rec, fieldLabel);
+      vals.forEach(v => {
+        if (!valueMap.has(v)) valueMap.set(v, []);
+        valueMap.get(v).push(rec.idx);
+      });
+    });
+
+    // Sort by count desc
+    const entries = [...valueMap.entries()]
+      .filter(([v]) => !filterQ || v.toLowerCase().includes(filterQ))
+      .sort((a, b) => b[1].length - a[1].length);
+
+    const total = allRecords.length;
+    fbTitle.innerHTML = `${escHtml(fieldLabel)} <small>${valueMap.size}種類</small>`;
+
+    fbList.innerHTML = entries.length ? entries.map(([val, indices]) => {
+      const isActive = activeBrowseValue === val;
+      return `<div class="fb-item${isActive ? ' fb-active' : ''}"
+                   onclick="selectBrowseValue('${escHtml(fieldLabel)}', ${JSON.stringify(val)})">
+        <span class="fb-val">${highlight(val, filterQ)}</span>
+        <span class="fb-count">${indices.length} / ${total}</span>
+      </div>`;
+    }).join('') : `<div class="fb-empty">値が見つかりません</div>`;
+
+    if (resetScroll) fbList.scrollTop = 0;
+  }
+
+  function selectBrowseValue(fieldLabel, val) {
+    if (activeBrowseValue === val) {
+      // Deselect
+      activeBrowseValue = null;
+      browseMatchSet.clear();
+    } else {
+      activeBrowseValue = val;
+      // Build match set from ALL records (not just filtered)
+      browseMatchSet.clear();
+      allRecords.forEach(rec => {
+        if (getFieldValues(rec, fieldLabel).includes(val)) browseMatchSet.add(rec.idx);
+      });
+    }
+
+    renderFieldBrowser(fieldLabel, false);
+    renderList();
+    updateStats();
+    updateBrowseBanner();
+  }
+
+  function updateBrowseBanner() {
+    if (activeBrowseValue && browseMatchSet.size > 0) {
+      fbBannerText.textContent = `"${activeBrowseValue}" — ${browseMatchSet.size}件`;
+      fbBanner.classList.add('show');
+    } else {
+      fbBanner.classList.remove('show');
+    }
+  }
+
+  function closeFieldBrowser() {
+    activeBrowseField = null;
+    activeBrowseValue = null;
+    browseMatchSet.clear();
+    fieldBrowser.classList.remove('open');
+    renderList();
+    updateStats();
+    if (currentIndex >= 0) renderDetail(allRecords[currentIndex]);
+  }
+
+  fbClose.addEventListener('click', closeFieldBrowser);
+
+  fbClearFilter.addEventListener('click', () => {
+    activeBrowseValue = null;
+    browseMatchSet.clear();
+    renderFieldBrowser(activeBrowseField, false);
+    renderList();
+    updateStats();
+    updateBrowseBanner();
+  });
+
+  fbSearch.addEventListener('input', () => {
+    if (activeBrowseField) renderFieldBrowser(activeBrowseField, false);
+  });
+
+  // ── Keyboard shortcuts ──
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && document.activeElement !== searchInput && document.activeElement !== fbSearch) {
+      e.preventDefault(); searchInput.focus(); searchInput.select();
+    }
+    if (e.key === 'Escape') {
+      if (document.activeElement === searchInput) searchInput.blur();
+      else if (document.activeElement === fbSearch) fbSearch.blur();
+      else if (activeBrowseField) closeFieldBrowser();
+    }
+    if (!['ArrowDown','ArrowUp'].includes(e.key)) return;
+    if (document.activeElement === searchInput || document.activeElement === fbSearch) return;
+    e.preventDefault();
+    const delta = e.key === 'ArrowDown' ? 1 : -1;
+    const cur = filteredRecords.findIndex(r => r.idx === currentIndex);
+    const next = Math.max(0, Math.min(filteredRecords.length - 1, cur + delta));
+    if (filteredRecords[next]) selectRecord(filteredRecords[next].idx, true);
+  });
+
+  // ── Simple XML formatter ──
+  function formatXml(xml) {
+    let out = '', indent = 0;
+    const tab = '  ';
+    xml.replace(/>\s*</g, '>\n<').split('\n').forEach(node => {
+      node = node.trim();
+      if (!node) return;
+      if (node.match(/^<\/\w/)) indent = Math.max(0, indent - 1);
+      out += tab.repeat(indent) + node + '\n';
+      if (node.match(/^<\w[^>]*[^/]>.*$/) && !node.match(/^<\w[^>]*\/>/)) {
+        if (!node.match(/<\/\w/)) indent++;
+      }
+    });
+    return out.trim();
+  }
+</script>
+</body>
+</html>
